@@ -163,6 +163,32 @@ Public Class ProjectTests
         Assert.Contains("背景分析", wf.Performance.ToText())
     End Sub
     <Fact>
+    Public Sub Workflow_ChangeBackground_KeepsFigureRelativePlacement()
+        ' 已經放好人物再換一張不同尺寸（不同比例）的背景：人物在畫面上的相對位置與占畫面的高度不變。
+        Dim dir = TestHelpers.TempDir()
+        Dim codec As New PngCodec()
+        Dim bg1 = Path.Combine(dir, "bg1.png"), bg2 = Path.Combine(dir, "bg2.png"), figPath = Path.Combine(dir, "fig.png")
+        codec.Encode(TestHelpers.NoisyBackground(400, 300), bg1, ExportFormat.Png, 0)
+        codec.Encode(TestHelpers.NoisyBackground(1200, 600, 3), bg2, ExportFormat.Png, 0)
+        codec.Encode(TestHelpers.StickFigure(100, 200, transparent:=True), figPath, ExportFormat.Png, 0)
+        Dim wf As New CompositeWorkflow(CompositeServices.Create(Nothing, Nothing))
+        wf.LoadBackground(bg1)
+        Dim layer = wf.AddFigure(figPath)
+        layer.Transform.X = 100 : layer.Transform.Y = 240 : layer.Transform.Scale = 0.6
+        layer.Shadow.OffsetX = 10
+        wf.LoadBackground(bg2)
+        Assert.Equal(300.0, layer.Transform.X, 3)  ' 100/400 → 300/1200
+        Assert.Equal(480.0, layer.Transform.Y, 3)  ' 240/300 → 480/600
+        Assert.Equal(1.2, layer.Transform.Scale, 3) ' 高度比 2
+        Assert.Equal(20.0, layer.Shadow.OffsetX, 3)
+        ' 同尺寸的背景不動
+        Dim bg3 = Path.Combine(dir, "bg3.png")
+        codec.Encode(TestHelpers.NoisyBackground(1200, 600, 9), bg3, ExportFormat.Png, 0)
+        wf.LoadBackground(bg3)
+        Assert.Equal(300.0, layer.Transform.X, 3)
+    End Sub
+
+    <Fact>
     Public Sub Load_BackgroundSizeChanged_RescalesCoordinates()
         Dim dir = TestHelpers.TempDir()
         Dim codec As New PngCodec()

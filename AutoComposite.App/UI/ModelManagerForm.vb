@@ -41,7 +41,8 @@ Friend NotInheritable Class ModelManagerForm
                                                   _settings.Save()
                                               End Sub
 
-        Dim bar As New FlowLayoutPanel() With {.Dock = DockStyle.Top, .Height = 38, .WrapContents = False}
+        ' 視窗窄、字型放大時按鈕放不下：換行，不要把最後的「取消下載」切掉。
+        Dim bar As New FlowLayoutPanel() With {.Dock = DockStyle.Top, .AutoSize = True, .AutoSizeMode = AutoSizeMode.GrowAndShrink, .WrapContents = True, .Padding = New Padding(0, 2, 0, 2)}
         Dim lbl = Function(t As String) New Label() With {.Text = t, .AutoSize = True, .Padding = New Padding(0, 8, 0, 0)}
         bar.Controls.AddRange({lbl("版本"), _variant, lbl("預定用途"), _use,
                                MakeButton("下載安裝", AddressOf Install), MakeButton("驗證檔案", AddressOf Verify),
@@ -57,6 +58,12 @@ Friend NotInheritable Class ModelManagerForm
         Controls.Add(_progressText)
         Controls.Add(_progress)
         AddHandler _list.SelectedIndexChanged, Sub() ShowDetails()
+        ' 說明是唯讀文字框，排在第一個會拿到焦點而整段被選取（藍底）：焦點給模型清單。
+        _details.TabIndex = 99
+        AddHandler Shown, Sub()
+                              ActiveControl = _list
+                              _details.Select(0, 0)
+                          End Sub
         RefreshList(focusId)
         AddHandler FormClosing, Sub(s, e)
                                     If _cts IsNot Nothing Then
@@ -139,6 +146,7 @@ Friend NotInheritable Class ModelManagerForm
             sb.Append($"⚠ {p}{nl}")
         Next
         _details.Text = sb.ToString()
+        _details.Select(0, 0)
     End Sub
 
     Private Sub SetBusy(busy As Boolean)

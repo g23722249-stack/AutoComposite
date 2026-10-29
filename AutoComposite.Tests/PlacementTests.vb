@@ -25,6 +25,58 @@ Public Class PlacementTests
         Assert.InRange(a.FeetCenter.X, 46, 54)
     End Sub
 
+    ''' <summary>半身像：上半部的長條＋頭，身體一直延伸到圖的最底列（被裁切）。</summary>
+    Private Shared Function HalfBodyMask(w As Integer, h As Integer) As FloatMask
+        Dim m As New FloatMask(w, h)
+        Dim cx = w / 2.0
+        For y = 0 To h - 1
+            For x = 0 To w - 1
+                Dim inBody = Math.Abs(x + 0.5 - cx) <= w * 0.3 AndAlso y + 0.5 >= h * 0.35
+                Dim inHead = (x + 0.5 - cx) ^ 2 + (y + 0.5 - h * 0.2) ^ 2 <= (w * 0.16) ^ 2
+                If inBody OrElse inHead Then m(x, y) = 1
+            Next
+        Next
+        Return m
+    End Function
+
+    <Fact>
+    Public Sub FigureAnalyzer_DetectsBottomCroppedHalfBody()
+        Assert.True(FigureAnalyzer.Analyze(HalfBodyMask(200, 240)).BottomCropped)
+        ' 全身像（腳在圖內）、以及腳剛好碰到底邊的全身像（腳那一列很窄）都不算。
+        Dim full = TestHelpers.StickFigure(100, 200)
+        Assert.False(FigureAnalyzer.Analyze(TestHelpers.StickMask(full)).BottomCropped)
+        Dim touching = TestHelpers.StickMask(full)
+        For y = 184 To 199
+            For x = 47 To 52
+                touching(x, y) = 1
+            Next
+        Next
+        Assert.False(FigureAnalyzer.Analyze(touching).BottomCropped)
+    End Sub
+
+    <Fact>
+    Public Sub AutoPlacement_HalfBodySitsOnFrameBottom()
+        ' 沒有天空的背景：全身像會站到地面，半身像要從畫面下緣「長出來」，不能浮在半空。
+        Dim bg = TestHelpers.NoisyBackground(600, 400)
+        Dim alpha = HalfBodyMask(200, 240)
+        Dim src As New RgbaImage(200, 240)
+        Dim layer As New CompositeLayer With {.Source = src, .Alpha = alpha, .Name = "半身像"}
+        Dim fa = FigureAnalyzer.Analyze(alpha)
+        Dim anchor = fa.AnchorFor(AnchorKind.FeetCenter)
+        layer.AnchorX = anchor.X : layer.AnchorY = anchor.Y
+        Dim scene As New CompositeScene With {.Background = bg}
+        scene.Layers.Add(layer)
+        Dim cands = New AutoPlacementService().Suggest(scene, layer, SceneAnalyzer.Analyze(bg))
+        Dim best = cands(0)
+        Dim m = TransformService.Compose(best.Transform, best.SourceAnchor, 200, 240)
+        Dim cut = m.Transform(New PointD(100, 240))
+        Assert.InRange(cut.Y, 399, 401)
+        Assert.InRange(cut.X, 290, 310)
+        Assert.InRange(fa.Height * best.Transform.Scale, 230, 250) ' 畫面高度 60%
+        Assert.Contains("半身像", best.Description)
+        Assert.True(best.Score > 0.5, best.PenaltySummary())
+    End Sub
+
     <Fact>
     Public Sub FigureAnalyzer_EmptyMaskThrows()
         Assert.Throws(Of InvalidOperationException)(Function() FigureAnalyzer.Analyze(New FloatMask(10, 10)))

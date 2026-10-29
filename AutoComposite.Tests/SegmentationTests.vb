@@ -52,6 +52,40 @@ Public Class SegmentationTests
         Assert.Contains("模型管理", ex.Message)
     End Sub
 
+    <Fact>
+    Public Sub IdleUnload_ReleasesSessionAndReloadsOnNextUse()
+        ' 閒置一段時間後釋放工作階段（DirectML 的工作階段在時程序多佔約 9 GB），下次去背自動重新載入。
+        Dim fig = TestHelpers.StickFigure(50, 120)
+        Dim svc As New OnnxBackgroundRemovalService(TinyManifest(), Function() TestHelpers.Asset("tiny_sigmoid.onnx")) With {.IdleUnloadAfter = TimeSpan.FromMilliseconds(300)}
+        Try
+            Dim opts As New SegmentationOptions With {.Preference = ExecutionPreference.Cpu}
+            svc.RemoveBackgroundAsync(fig, opts, Nothing, Nothing).Wait()
+            Assert.NotNull(svc.CurrentModel)
+            Dim sw = Stopwatch.StartNew()
+            Do While svc.CurrentModel IsNot Nothing AndAlso sw.ElapsedMilliseconds < 5000
+                Threading.Thread.Sleep(50)
+            Loop
+            Assert.Null(svc.CurrentModel)
+            Dim r = svc.RemoveBackgroundAsync(fig, opts, Nothing, Nothing).Result
+            Assert.Equal(50, r.Mask.Width)
+            Assert.NotNull(svc.CurrentModel)
+        Finally
+            svc.Dispose()
+        End Try
+    End Sub
+
+    <Fact>
+    Public Sub IdleUnload_ZeroKeepsSession()
+        Dim svc As New OnnxBackgroundRemovalService(TinyManifest(), Function() TestHelpers.Asset("tiny_sigmoid.onnx")) With {.IdleUnloadAfter = TimeSpan.Zero}
+        Try
+            svc.RemoveBackgroundAsync(TestHelpers.StickFigure(50, 120), New SegmentationOptions With {.Preference = ExecutionPreference.Cpu}, Nothing, Nothing).Wait()
+            Threading.Thread.Sleep(400)
+            Assert.NotNull(svc.CurrentModel)
+        Finally
+            svc.Dispose()
+        End Try
+    End Sub
+
     <Theory>
     <InlineData("tiny_sigmoid.onnx", "float32", "none")>
     <InlineData("tiny_logits.onnx", "float32", "sigmoid")>

@@ -57,6 +57,16 @@ Public NotInheritable Class OnnxBackgroundRemovalService
     Private ReadOnly _gate As New Threading.SemaphoreSlim(1, 1)
     Private _model As LoadedModel
     Private _loadedPreference As ExecutionPreference
+    Private _idleTimer As Threading.Timer
+    Private _lastUsed As DateTime
+    Private _disposed As Boolean
+
+    ''' <summary>
+    ''' 最後一次推論後閒置多久就釋放工作階段（下次去背自動重新載入，約多幾秒）。
+    ''' DirectML 的工作階段在時會讓程序多佔約 9 GB（顯示卡驅動提交的記憶體），釋放後立刻還回去。
+    ''' TimeSpan.Zero 或負值＝不自動釋放。
+    ''' </summary>
+    Public Property IdleUnloadAfter As TimeSpan = TimeSpan.FromSeconds(90)
 
     Public Event ModelLoaded(model As LoadedModel)
 
@@ -95,9 +105,45 @@ Public NotInheritable Class OnnxBackgroundRemovalService
         Try
             Return Await Task.Run(Function() RunCore(image, options, progress, cancel), cancel).ConfigureAwait(False)
         Finally
+            _lastUsed = DateTime.UtcNow
+            ScheduleIdleUnload()
             _gate.Release()
         End Try
     End Function
+
+    ''' <summary>閒置計時：時間到時沒有推論在跑、也沒有再被用過才釋放；正在推論就晚點再看。</summary>
+    Private Sub ScheduleIdleUnload()
+        If _disposed OrElse IdleUnloadAfter <= TimeSpan.Zero OrElse _model Is Nothing Then Return
+        If _idleTimer Is Nothing Then
+            _idleTimer = New Threading.Timer(AddressOf OnIdleTimer, Nothing, IdleUnloadAfter, Threading.Timeout.InfiniteTimeSpan)
+        Else
+            _idleTimer.Change(IdleUnloadAfter, Threading.Timeout.InfiniteTimeSpan)
+        End If
+    End Sub
+
+    Private Sub OnIdleTimer(state As Object)
+        If _disposed Then Return
+        If Not _gate.Wait(0) Then
+            _idleTimer?.Change(IdleUnloadAfter, Threading.Timeout.InfiniteTimeSpan)
+            Return
+        End If
+        Try
+            If _model Is Nothing Then Return
+            Dim idle = DateTime.UtcNow - _lastUsed
+            If idle >= IdleUnloadAfter Then
+                AppLog.Info($"{_manifest.Name} 閒置 {idle.TotalSeconds:0} 秒，釋放模型（{_model.Provider}）。下次去背會重新載入。")
+                Unload()
+            Else
+                _idleTimer?.Change(IdleUnloadAfter - idle, Threading.Timeout.InfiniteTimeSpan)
+            End If
+        Catch ex As ObjectDisposedException
+        Finally
+            Try
+                _gate.Release()
+            Catch ex As ObjectDisposedException
+            End Try
+        End Try
+    End Sub
 
     Private Function RunCore(image As RgbaImage, options As SegmentationOptions, progress As IProgress(Of String), cancel As Threading.CancellationToken) As SegmentationResult
         Dim sw = Stopwatch.StartNew()
@@ -227,6 +273,9 @@ Public NotInheritable Class OnnxBackgroundRemovalService
     End Sub
 
     Public Sub Dispose() Implements IDisposable.Dispose
+        _disposed = True
+        _idleTimer?.Dispose()
+        _idleTimer = Nothing
         Unload()
         _gate.Dispose()
     End Sub

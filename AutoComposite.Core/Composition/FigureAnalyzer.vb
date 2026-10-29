@@ -17,6 +17,11 @@ Public NotInheritable Class FigureAnalysis
     Public Property Torso As PointD
     ''' <summary>前景像素比例（0..1）。</summary>
     Public Property Coverage As Double
+    ''' <summary>
+    ''' 人物下緣被原圖裁切（半身像、胸像）：前景碰到原圖最底列，而且那一列的寬度至少是最寬列的 40%。
+    ''' 全身像腳底那一列很窄，不會被當成裁切。被裁切時沒有腳，「腳點」改用裁切邊的中點。
+    ''' </summary>
+    Public Property BottomCropped As Boolean
 
     Public ReadOnly Property Height As Double
         Get
@@ -36,7 +41,7 @@ Public NotInheritable Class FigureAnalysis
             Case AnchorKind.BottomCenter : Return New PointD(Bounds.X + Bounds.Width / 2.0, Bounds.Bottom)
             Case AnchorKind.Center : Return Centroid
             Case AnchorKind.Head : Return Head
-            Case Else : Return FeetCenter
+            Case Else : Return If(BottomCropped, New PointD(Bounds.X + Bounds.Width / 2.0, Bounds.Bottom), FeetCenter)
         End Select
     End Function
 End Class
@@ -51,6 +56,8 @@ Public NotInheritable Class FigureAnalyzer
     End Sub
 
     Public Const Threshold As Single = 0.2F
+    ''' <summary>最底列寬度達最寬列的這個比例以上，就當成下緣被裁切。</summary>
+    Public Const CroppedRowFraction As Double = 0.4
 
     Public Shared Function Analyze(alpha As FloatMask) As FigureAnalysis
         Dim w = alpha.Width, h = alpha.Height
@@ -151,6 +158,7 @@ Public NotInheritable Class FigureAnalyzer
         Return New FigureAnalysis With {
             .Bounds = bounds, .FeetCenter = feet, .FeetLeft = left, .FeetRight = right, .Head = head,
             .Centroid = If(total > 0, New PointD(cx / total + 0.5, cy / total + 0.5), torso),
-            .AxisTiltDegrees = tilt, .Torso = torso, .Coverage = total / (CDbl(w) * h)}
+            .AxisTiltDegrees = tilt, .Torso = torso, .Coverage = total / (CDbl(w) * h),
+            .BottomCropped = bounds.Bottom >= h AndAlso rowSum(h - 1) >= maxRow * CroppedRowFraction}
     End Function
 End Class

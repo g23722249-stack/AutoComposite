@@ -105,6 +105,9 @@ Public NotInheritable Class AutoPlacementService
         End If
 
         Dim candidates As New List(Of PlacementCandidate)()
+        If fig.BottomCropped AndAlso Not t.HasAnchor AndAlso (layer.AnchorKind = AnchorKind.FeetCenter OrElse layer.AnchorKind = AnchorKind.BottomCenter) Then
+            Return SuggestCropped(scene, layer, fig, srcAnchor, analysis, rules)
+        End If
         Dim offsetUnit = If(surfaceWidth > 0, surfaceWidth, fig.FeetWidth * baseScale)
         For Each mult In rules.ScaleMultipliers
             Dim scale = baseScale * mult
@@ -117,6 +120,41 @@ Public NotInheritable Class AutoPlacementService
                 Dim c = Evaluate(scene, layer, fig, srcAnchor, tr, target, surfL, surfR, mult, analysis, rules)
                 c.Description = $"{reason}；{scaleReason}，倍率 ×{mult:0.00}" & If(off <> 0, $"，水平位移 {off:+0%;-0%}", "") &
                     If(tr.Perspective.Mode = PerspectiveMode.Keystone, $"，仰角透視 {keystone:0.00}", "")
+                candidates.Add(c)
+            Next
+        Next
+        candidates.Sort(Function(a, b) b.Score.CompareTo(a.Score))
+        Return candidates
+    End Function
+
+    ''' <summary>
+    ''' 下緣被裁切的人物（半身像）沒有腳可以站：裁切邊貼齊畫面下緣，像人像照一樣從畫面底部「長出來」，
+    ''' 高度預設畫面的 60%（不超過 95%），水平放在中央、左三分之一、右三分之一。
+    ''' </summary>
+    Private Shared Function SuggestCropped(scene As CompositeScene, layer As CompositeLayer, fig As FigureAnalysis, srcAnchor As PointD,
+                                           analysis As SceneAnalysis, rules As PlacementRules) As List(Of PlacementCandidate)
+        Dim bw = scene.Width, bh = scene.Height, t = scene.Target
+        Dim baseScale As Double, scaleReason As String
+        If t.TargetHeight > 0 Then
+            baseScale = t.TargetHeight / fig.Height : scaleReason = $"指定高度 {t.TargetHeight:0} px"
+        ElseIf t.TargetHeightFraction > 0 Then
+            baseScale = t.TargetHeightFraction * bh / fig.Height : scaleReason = $"畫面高度的 {t.TargetHeightFraction:P0}"
+        Else
+            baseScale = bh * 0.6 / fig.Height : scaleReason = "高度約畫面 60%"
+        End If
+        Dim maxScale = bh * 0.95 / fig.Height
+        Dim positions = {(0.5, "畫面中央"), (1 / 3.0, "左三分之一"), (2 / 3.0, "右三分之一")}
+        Dim candidates As New List(Of PlacementCandidate)()
+        For Each mult In rules.ScaleMultipliers
+            Dim scale = Math.Min(maxScale, baseScale * mult)
+            For Each pos In positions
+                Dim target = New PointD(bw * pos.Item1, bh)
+                Dim tr As New LayerTransform With {.X = target.X, .Y = target.Y, .Scale = scale}
+                Dim c = Evaluate(scene, layer, fig, srcAnchor, tr, target, 0, 0, mult, analysis, rules)
+                ' 同分時中央優先（人像構圖最常見）。
+                If pos.Item1 <> 0.5 Then c.Penalties("偏離中央") = 0.02 : c.Score = Math.Max(0, c.Score - 0.02)
+                c.Description = $"人物下緣被裁切（半身像）：裁切邊貼齊畫面下緣，{pos.Item2}；{scaleReason}，倍率 ×{mult:0.00}" &
+                    If(scale < baseScale * mult, "（受畫面高度限制）", "")
                 candidates.Add(c)
             Next
         Next

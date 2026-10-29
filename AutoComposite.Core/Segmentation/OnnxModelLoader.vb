@@ -61,6 +61,8 @@ End Class
 ''' 不支援時（沒有 DirectML 版原生程式庫、顯卡不支援、算子不相容）自動改用 CPU 並記錄原因。
 ''' 載入後讀取輸入輸出 metadata 與 opset，和模型清單規格比對；形狀或型別不相容時拒絕使用。
 ''' 以檔案路徑建立工作階段，外部權重檔（.onnx_data）才找得到。
+''' CPU 記憶體區（arena）關閉：開著時每次推論都再多保留一批中間結果（ToonOut 1024² 推論兩次就到 8 GB），
+''' 關掉後推論完只留模型本身（約 0.7 GB），速度幾乎一樣。
 ''' </summary>
 Public NotInheritable Class OnnxModelLoader
     Public Function Load(modelPath As String, preference As ExecutionPreference, Optional expected As ManifestIo = Nothing) As LoadedModel
@@ -112,7 +114,7 @@ Public NotInheritable Class OnnxModelLoader
     End Function
 
     Private Shared Function CreateSession(path As String, directML As Boolean) As InferenceSession
-        Dim opts As New SessionOptions With {.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL}
+        Dim opts As New SessionOptions With {.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL, .EnableCpuMemArena = False}
         Try
             If directML Then
                 opts.EnableMemoryPattern = False

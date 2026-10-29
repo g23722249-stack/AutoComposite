@@ -92,7 +92,8 @@ Partial Friend NotInheritable Class MainForm
     Private ReadOnly _logList As New ListBox() With {.Dock = DockStyle.Fill, .HorizontalScrollbar = True, .IntegralHeight = False}
 
     Private Function BuildRightPanel() As Control
-        _rightTabs = New TabControl() With {.Dock = DockStyle.Fill, .Multiline = True}
+        ' 八個頁籤：預設左右留白下「輸出」會單獨換到第二列；縮小留白、填滿整列，放不下時才換行而且每列都填滿。
+        _rightTabs = New TabControl() With {.Dock = DockStyle.Fill, .Multiline = True, .Padding = New Point(3, 3), .SizeMode = TabSizeMode.FillToRight}
         _rightTabs.TabPages.Add(BuildLayerTab())
         _rightTabs.TabPages.Add(BuildCutoutTab())
         _placementTab = BuildPlacementTab()

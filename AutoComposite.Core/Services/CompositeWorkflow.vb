@@ -44,6 +44,7 @@ Public NotInheritable Class CompositeWorkflow
 
     Public Function LoadBackground(path As String) As ImageInfo
         Dim d = Performance.Measure("載入背景", Function() _svc.Images.Load(path))
+        Dim oldW = If(Scene.Background Is Nothing, 0, Scene.Background.Width), oldH = If(Scene.Background Is Nothing, 0, Scene.Background.Height)
         Scene.BackgroundPath = path
         Scene.Background = d.Image
         Scene.BackgroundInfo = d.Info
@@ -55,12 +56,29 @@ Public NotInheritable Class CompositeWorkflow
         Next
         Scene.Target = New PlacementTarget()
         Scene.Guides.Clear()
+        RescaleLayersForNewBackground(oldW, oldH, d.Image.Width, d.Image.Height)
         AnalyzeBackground()
         _svc.Renderer.InvalidateCaches()
         History.Record(Scene, "載入背景")
         AppLog.Info($"背景：{d.Info.Describe()}")
         Return d.Info
     End Function
+
+    ''' <summary>
+    ''' 換背景時已經放好的人物：依新舊背景的比例換算，水平位置乘寬度比、垂直位置與大小（含陰影距離、模糊）乘高度比，
+    ''' 人物在畫面上的相對位置和占畫面的高度不變。第一次載入背景、尺寸相同時不動。
+    ''' </summary>
+    Private Sub RescaleLayersForNewBackground(oldW As Integer, oldH As Integer, newW As Integer, newH As Integer)
+        If oldW <= 0 OrElse oldH <= 0 OrElse Scene.Layers.Count = 0 OrElse (oldW = newW AndAlso oldH = newH) Then Return
+        Dim kx = newW / CDbl(oldW), ky = newH / CDbl(oldH)
+        For Each l In Scene.Layers
+            l.Transform.X *= kx : l.Transform.Y *= ky : l.Transform.Scale *= ky
+            l.Shadow.OffsetX *= ky : l.Shadow.OffsetY *= ky : l.Shadow.BlurRadius *= ky
+            l.Color.DepthBlur *= ky
+        Next
+        Scene.OcclusionFeather *= ky
+        AppLog.Info($"背景尺寸 {oldW}×{oldH} → {newW}×{newH}：{Scene.Layers.Count} 個人物依比例換算位置與大小。")
+    End Sub
 
     ''' <summary>重新分析背景（天空、推薦站立點）。</summary>
     Public Sub AnalyzeBackground()
@@ -132,14 +150,22 @@ Public NotInheritable Class CompositeWorkflow
         End Try
     End Sub
 
-    ''' <summary>還沒自動定位前的預設位置：畫面下方中央，高度約畫面 40%。</summary>
+    ''' <summary>還沒自動定位前的預設位置：畫面下方中央，高度約畫面 40%；下緣被裁切的透明 PNG（半身像）貼齊畫面下緣、高度約 60%。</summary>
     Private Sub PlaceDefault(layer As CompositeLayer)
         If Scene.Background Is Nothing Then Return
         Dim h = layer.Source.Height
+        Dim cropped = False
         Try
-            h = FigureAnalyzer.Analyze(layer.Alpha).Bounds.Height
+            Dim fig = FigureAnalyzer.Analyze(layer.Alpha)
+            h = fig.Bounds.Height
+            ' 還沒去背（整張不透明）時也會「碰到底邊」，那不算半身像。
+            cropped = fig.BottomCropped AndAlso Not String.IsNullOrEmpty(layer.MaskModelId)
         Catch ex As InvalidOperationException
         End Try
+        If cropped Then
+            layer.Transform = New LayerTransform With {.X = Scene.Width / 2.0, .Y = Scene.Height, .Scale = Scene.Height * 0.6 / Math.Max(1, h)}
+            Return
+        End If
         layer.Transform = New LayerTransform With {.X = Scene.Width / 2.0, .Y = Scene.Height * 0.9, .Scale = Scene.Height * 0.4 / Math.Max(1, h)}
     End Sub
 
@@ -280,7 +306,12 @@ Public NotInheritable Class CompositeWorkflow
             rec.Mode = options.ColorMode
             layer.Color = rec
         End If
-        If options.EnableShadow Then
+        Dim cropped = False
+        Try
+            cropped = _svc.Renderer.GetFigureAnalysis(layer).BottomCropped
+        Catch ex As InvalidOperationException
+        End Try
+        If options.EnableShadow AndAlso Not cropped Then
             Dim fromSky = layer.Shadow.Receiver = ShadowReceiver.NonSky OrElse TargetFromSkyline()
             Dim sp = _svc.Shadow.Recommend(SceneAnalysis, fromSky)
             ' 模糊依人物在畫面上的大小調整。
@@ -292,6 +323,7 @@ Public NotInheritable Class CompositeWorkflow
             If figH > 0 Then sp.BlurRadius = Math.Clamp(figH * 0.012, 1.5, 24)
             layer.Shadow = sp
         Else
+            ' 半身像沒有踩在地上，腳下的接觸陰影、投射陰影都不合理。
             layer.Shadow.Enabled = False
         End If
         History.Record(Scene, "自動融合")
