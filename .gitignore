@@ -1,0 +1,13 @@
+# 建置輸出
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# AI 模型另外下載（模型管理），不放進 git
+*.onnx
+*.onnx_data
+Models/
+# 測試用的極小 ONNX 模型（幾百位元組，由 tools/make_test_models.py 產生）要進版本控制
+!AutoComposite.Tests/TestAssets/*.onnx
