@@ -7,6 +7,12 @@ VB.NET、.NET 8 的 Windows 桌面 AI 人物合成軟體。選一張背景照片
 > 範例情境：背景是雅典娜神殿的石柱照片，人物是藍髮、金色盔甲的動漫女戰士。
 > 用 ToonOut 去背 → 天際線分析找到柱頂 → 腳點對齊柱頂、腳寬不超出平台、頭部不超出畫面 → 兩條石柱邊緣參考線推估仰角透視 → 依柱頂附近的背景輕度調整色溫與亮度 → 陰影只落在石頭上、不落在天空。
 
+## 使用手冊與教學
+
+- **[使用手冊](Docs/使用手冊.md)**：引導式教學（紫藤花隧道＋賽博龐克半身像的範例，每一步附示意圖）、各分頁功能說明、常見問題。
+- **程式內教學**：工具列「📖 使用教學」，貼在主視窗旁一步一步帶你操作，每一步有可以直接按的按鈕，完成時自動打勾。第一次啟動時會詢問要不要開啟。
+- 示意圖由 `tools/TutorialImages` 用合成核心實際跑出來（範例與示意圖在 `Docs/tutorial/`，建置時複製到程式資料夾的 `Tutorial\`）。
+
 ## 專案結構
 
 ```
@@ -30,7 +36,8 @@ AutoComposite/
 │  ├─ UI/                       MainForm、CompositeCanvas、MaskEditorForm、ModelManagerForm、WicImageCodec…
 │  └─ ModelStore/manifests/     模型清單（複製到輸出的 ModelManifests\）
 ├─ AutoComposite.Tests/         xUnit 測試（77 個）＋ TestAssets 極小 ONNX 測試模型
-└─ tools/make_test_models.py    產生測試模型的腳本
+├─ Docs/                       使用手冊與教學圖（tutorial/）
+└─ tools/                      make_test_models.py（測試模型）、TutorialImages（教學圖產生器）
 ```
 
 介面不直接做推論或合成計算：UI → `CompositeWorkflow` → 各服務介面（`ITransformService`、`IBackgroundRemovalService`、`IColorMatchingService`、`IShadowService`、`IOcclusionService`、`IAutoPlacementService`、`ICompositeRenderer`、`IInpaintingService`）。服務都可以替換。

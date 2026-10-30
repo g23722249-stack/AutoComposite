@@ -55,6 +55,8 @@
 
   <ItemGroup>
     <None Include="ModelStore\manifests\*.json" Link="ModelManifests\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 引導式教學的範例圖片與各步驟示意圖（Docs\tutorial 由 tools\TutorialImages 產生），複製到輸出的 Tutorial\。 -->
+    <None Include="..\Docs\tutorial\*.jpg" Link="Tutorial\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
