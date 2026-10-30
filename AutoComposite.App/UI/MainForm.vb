@@ -97,6 +97,7 @@ Partial Friend NotInheritable Class MainForm
         AddToolButton("100%", "實際像素", Sub() _canvas.ZoomActual(), False)
         _toolbar.Items.Add(New ToolStripSeparator())
         AddToolButton("模型管理", "下載、驗證與刪除 AI 模型", AddressOf ShowModelManager)
+        AddToolButton("📖 使用教學", "一步一步帶你完成第一張合成（附範例圖片）", AddressOf ShowTutorial, False)
         Controls.Add(_toolbar)
     End Sub
 
@@ -262,9 +263,14 @@ Partial Friend NotInheritable Class MainForm
         End Using
     End Function
 
-    Private Async Sub OpenBackground()
+    Private Sub OpenBackground()
         Dim p = PickImage("開啟背景照片")
         If p Is Nothing Then Return
+        OpenBackgroundFile(p)
+    End Sub
+
+    ''' <summary>載入指定的背景檔（教學的「使用範例背景」也用這個）。</summary>
+    Friend Async Sub OpenBackgroundFile(p As String)
         Dim info As ImageInfo = Nothing
         If Await RunBusyAsync("載入背景", Async Function(ct, pr)
                                                info = Await Task.Run(Function() _wf.LoadBackground(p), ct)
@@ -275,13 +281,22 @@ Partial Friend NotInheritable Class MainForm
         End If
     End Sub
 
-    Private Async Sub OpenFigure()
+    Private Sub OpenFigure()
         If _wf.Scene.Background Is Nothing Then
             MessageBox.Show(Me, "請先開啟背景照片。", Text, MessageBoxButtons.OK, MessageBoxIcon.Information)
             Return
         End If
         Dim p = PickImage("開啟人物圖片")
         If p Is Nothing Then Return
+        OpenFigureFile(p)
+    End Sub
+
+    ''' <summary>載入指定的人物檔（教學的「使用範例人物」也用這個）。</summary>
+    Friend Async Sub OpenFigureFile(p As String)
+        If _wf.Scene.Background Is Nothing Then
+            MessageBox.Show(Me, "請先開啟背景照片。", Text, MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Return
+        End If
         Dim layer As CompositeLayer = Nothing
         If Await RunBusyAsync("載入人物", Async Function(ct, pr)
                                                layer = Await Task.Run(Function() _wf.AddFigure(p), ct)
@@ -302,7 +317,7 @@ Partial Friend NotInheritable Class MainForm
         RefreshAll()
     End Sub
 
-    Private Sub SaveProject()
+    Friend Sub SaveProject()
         If _wf.Scene.Background Is Nothing Then Return
         Dim path = _wf.ProjectPath
         If String.IsNullOrEmpty(path) Then
@@ -368,7 +383,7 @@ Partial Friend NotInheritable Class MainForm
         End If
     End Sub
 
-    Private Async Sub ExportImage()
+    Friend Async Sub ExportImage()
         If _wf.Scene.Background Is Nothing Then Return
         Dim fmt As ExportFormat, path As String
         Using dlg As New SaveFileDialog With {.Title = "匯出合成圖片", .Filter = "PNG（無損）|*.png|JPEG|*.jpg", .InitialDirectory = _settings.LastImageFolder,
@@ -391,7 +406,7 @@ Partial Friend NotInheritable Class MainForm
 
     ' ---------------- 自動流程 ----------------
 
-    Private Async Sub RunCutout(Optional modelId As String = Nothing)
+    Friend Async Sub RunCutout(Optional modelId As String = Nothing)
         Dim layer = _wf.SelectedLayer
         If layer Is Nothing Then
             MessageBox.Show(Me, "請先開啟人物圖片。", Text) : Return
@@ -425,7 +440,7 @@ Partial Friend NotInheritable Class MainForm
         End If
     End Sub
 
-    Private Sub RunAutoPlace()
+    Friend Sub RunAutoPlace()
         Dim layer = _wf.SelectedLayer
         If layer Is Nothing OrElse _wf.Scene.Background Is Nothing Then Return
         Try
@@ -448,7 +463,7 @@ Partial Friend NotInheritable Class MainForm
         End Try
     End Sub
 
-    Private Sub RunAutoBlend()
+    Friend Sub RunAutoBlend()
         Dim layer = _wf.SelectedLayer
         If layer Is Nothing OrElse _wf.Scene.Background Is Nothing Then Return
         Dim mode = If(_colorMode.SelectedIndex = 0, ColorMode.EnvironmentMatch, CType(_colorMode.SelectedIndex, ColorMode))
@@ -539,7 +554,7 @@ Partial Friend NotInheritable Class MainForm
         RequestRender(False)
     End Sub
 
-    Private Sub ShowModelManager()
+    Friend Sub ShowModelManager()
         ShowModelManager(Nothing)
     End Sub
 
@@ -551,13 +566,73 @@ Partial Friend NotInheritable Class MainForm
         RefreshCutoutModels()
     End Sub
 
-    Private Sub ShowMaskEditor()
+    Friend Sub ShowMaskEditor()
         Dim layer = _wf.SelectedLayer
         If layer Is Nothing Then Return
         Using f As New MaskEditorForm(_wf, layer)
             f.ShowDialog(Me)
         End Using
         RefreshAll()
+    End Sub
+
+    ' ---------------- 引導式教學 ----------------
+
+    Private _tutorial As TutorialForm
+
+    Friend ReadOnly Property Workflow As CompositeWorkflow
+        Get
+            Return _wf
+        End Get
+    End Property
+
+    Friend ReadOnly Property Models As ModelManager
+        Get
+            Return _models
+        End Get
+    End Property
+
+    Friend ReadOnly Property IsBusy As Boolean
+        Get
+            Return _busy
+        End Get
+    End Property
+
+    ''' <summary>候選位置清單有內容＝已經執行過自動定位。</summary>
+    Friend ReadOnly Property HasPlacementCandidates As Boolean
+        Get
+            Return _candidates.Items.Count > 0
+        End Get
+    End Property
+
+    ''' <summary>切換預覽模式（0 原始背景 … 5 最終合成）。</summary>
+    Friend Sub SetPreviewMode(index As Integer)
+        _previewMode.SelectedIndex = Math.Clamp(index, 0, _previewMode.Items.Count - 1)
+    End Sub
+
+    ''' <summary>切換右側分頁（依標題）。</summary>
+    Friend Sub ShowRightTab(title As String)
+        For Each page As TabPage In _rightTabs.TabPages
+            If page.Text = title Then _rightTabs.SelectedTab = page
+        Next
+    End Sub
+
+    Friend Sub ShowTutorial()
+        If _tutorial Is Nothing OrElse _tutorial.IsDisposed Then _tutorial = New TutorialForm(Me)
+        _tutorial.Show(Me)
+        _tutorial.PlaceBesideOwner()
+        _tutorial.Activate()
+    End Sub
+
+    Protected Overrides Sub OnShown(e As EventArgs)
+        MyBase.OnShown(e)
+        If Not _settings.TutorialOffered AndAlso _wf.Scene.Background Is Nothing Then
+            _settings.TutorialOffered = True
+            _settings.Save()
+            If MessageBox.Show(Me, "第一次使用嗎？要開啟引導式教學，用範例圖片一步一步完成第一張合成嗎？" & Environment.NewLine &
+                               "（之後也可以按工具列的「📖 使用教學」開啟）", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+                ShowTutorial()
+            End If
+        End If
     End Sub
 
     Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)

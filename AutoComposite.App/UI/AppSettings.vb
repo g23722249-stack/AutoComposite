@@ -12,6 +12,8 @@ Friend NotInheritable Class AppSettings
     ''' <summary>預覽長邊上限（0 = 依畫布大小）。</summary>
     Public Property PreviewMaxSide As Integer = 0
     Public Property JpegQuality As Integer = 95
+    ''' <summary>第一次啟動時已經問過要不要開教學。</summary>
+    Public Property TutorialOffered As Boolean
 
     Private Shared ReadOnly FilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoComposite", "settings.json")
 
